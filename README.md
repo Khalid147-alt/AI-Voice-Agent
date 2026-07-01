@@ -4,7 +4,9 @@ A production-grade, full-stack platform for building, launching, and monitoring 
 
 > Built to demonstrate end-to-end voice AI engineering with **VAPI**, **FastAPI**, **LangGraph**, **ElevenLabs**, and real-time call management.
 
-> **📸 Screenshot:** Dark, electric-blue dashboard — four KPI cards (Calls Today · Live Calls · Hot Leads · Cost Today), a real-time **Live Calls** feed with animated waveforms and running timers, and a 7-day call-volume chart. _Add `docs/hero.png` and swap this note for the image._
+![VoiceDesk dashboard](docs/hero.png)
+
+> Dark, electric-blue dashboard — KPI cards (Total Calls · Connected Rate · Avg Duration · Qualified Leads), call-volume and sentiment-breakdown charts, and an agents panel with per-agent stats.
 
 ---
 
