@@ -153,9 +153,9 @@ export interface CostTrendPoint {
 }
 
 export interface AppSettings {
-  demo_mode: boolean;
   vapi_connected: boolean;
-  has_openai: boolean;
+  phone_connected: boolean;
+  has_gemini: boolean;
   has_elevenlabs: boolean;
   vapi_public_key: string;
 }

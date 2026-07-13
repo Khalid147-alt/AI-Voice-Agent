@@ -159,7 +159,6 @@ export default function AgentDetailPage() {
             <h3 className="font-semibold mb-3">Test Call (Web)</h3>
             <WebCallWidget
               agent={agent}
-              demoMode={settings?.demo_mode ?? true}
               publicKey={
                 settings?.vapi_public_key ||
                 process.env.NEXT_PUBLIC_VAPI_PUBLIC_KEY ||

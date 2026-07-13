@@ -3,10 +3,10 @@
 A 4-node graph runs after each call:
   extract_sentiment -> classify_intent -> score_lead -> recommend_action
 
-Each node uses Google Gemini (gemini-2.5-flash) via langchain-google-genai when
-a GOOGLE_API_KEY is configured. Without a key (demo mode) each node falls back
-to a deterministic heuristic so the full pipeline still produces useful,
-realistic output for the portfolio demo.
+Each node uses Google Gemini (gemini-2.5-flash) via langchain-google-genai. If a
+Gemini call fails transiently (network, rate limit), the node falls back to a
+deterministic heuristic so a single call still produces a complete analysis
+rather than erroring out.
 
 (Migrated from a previous OpenAI-based implementation to Gemini 2.5 Flash.)
 """
@@ -16,8 +16,8 @@ from typing import TypedDict, Optional, List
 
 from config import settings
 
-# Gemini chat model. Guarded so the backend still boots (in demo mode) even if
-# the package is unavailable; nodes catch failures and fall back to heuristics.
+# Gemini chat model. Guarded so the backend still boots even if the package is
+# unavailable; nodes catch failures and fall back to heuristics.
 try:
     from langchain_google_genai import ChatGoogleGenerativeAI
 
@@ -81,7 +81,7 @@ def _transcript_text(transcript: List[dict]) -> str:
     return "\n".join(parts)
 
 
-# ----- Heuristic fallbacks (used in demo mode / on any Gemini error) -----
+# ----- Heuristic fallbacks (used on any transient Gemini error) -----
 def _heuristic_sentiment(text: str) -> str:
     lower = text.lower()
     pos = sum(w in lower for w in ("great", "interested", "yes", "love", "perfect", "sounds good", "absolutely"))
@@ -306,22 +306,11 @@ async def save_analysis_to_db(call_id: str, analysis: dict) -> None:
 
 
 async def run_post_call_analysis(call_id: str) -> dict:
-    """Run post-call analysis for a stored call and persist the result.
+    """Run the Gemini-backed LangGraph analysis for a stored call and persist it.
 
-    In demo mode (blank GOOGLE_API_KEY) this returns mock analysis without
-    calling Gemini, so the pipeline always produces useful output.
+    Individual nodes fall back to heuristics if a Gemini call fails transiently,
+    so this always returns a complete analysis.
     """
-    if not settings.GOOGLE_API_KEY:
-        mock = {
-            "sentiment": "positive",
-            "intent": "book_demo",
-            "lead_score": 72,
-            "next_action": "Follow up within 24 hours to confirm demo slot",
-        }
-        await save_analysis_to_db(call_id, mock)
-        return mock
-
-    # Real Gemini-backed pipeline.
     from sqlalchemy import select
 
     from database import AsyncSessionLocal

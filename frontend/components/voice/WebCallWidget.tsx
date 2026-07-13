@@ -9,24 +9,11 @@ import type { Agent, TranscriptEntry } from "@/types";
 
 type CallState = "idle" | "connecting" | "active" | "ending";
 
-// Scripted demo exchange used when no VAPI key is configured.
-const DEMO_SCRIPT: { role: string; content: string }[] = [
-  { role: "assistant", content: "Hi! This is your AI agent. Thanks for taking my call — do you have a quick minute?" },
-  { role: "user", content: "Sure, what's this about?" },
-  { role: "assistant", content: "We help teams automate outbound calls with AI. Are you handling outreach manually right now?" },
-  { role: "user", content: "Yeah, it's pretty time-consuming." },
-  { role: "assistant", content: "I completely understand. I'd love to show you a quick demo — could I book 20 minutes this week?" },
-  { role: "user", content: "That sounds good, let's do it." },
-  { role: "assistant", content: "Perfect, I'll send over a calendar invite. Thanks so much — take care!" },
-];
-
 export function WebCallWidget({
   agent,
-  demoMode,
   publicKey,
 }: {
   agent: Agent;
-  demoMode: boolean;
   publicKey: string;
 }) {
   const { toast } = useToast();
@@ -37,7 +24,6 @@ export function WebCallWidget({
 
   const vapiRef = useRef<any>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const demoTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -57,56 +43,17 @@ export function WebCallWidget({
 
   const cleanup = () => {
     stopTimer();
-    demoTimers.current.forEach(clearTimeout);
-    demoTimers.current = [];
     setVolume(0.5);
-  };
-
-  // ----- Demo mode (Web Speech API + scripted transcript) -----
-  const runDemoCall = () => {
-    setState("connecting");
-    setTranscript([]);
-    const synth = typeof window !== "undefined" ? window.speechSynthesis : null;
-
-    const connectT = setTimeout(() => {
-      setState("active");
-      startTimer();
-      let delay = 0;
-      DEMO_SCRIPT.forEach((line) => {
-        const t = setTimeout(() => {
-          setTranscript((prev) => [
-            ...prev,
-            { role: line.role, content: line.content },
-          ]);
-          // Animate volume + speak assistant lines.
-          if (line.role === "assistant" && synth) {
-            try {
-              const u = new SpeechSynthesisUtterance(line.content);
-              u.rate = 1.05;
-              u.pitch = 1;
-              u.onboundary = () => setVolume(0.4 + Math.random() * 0.6);
-              u.onend = () => setVolume(0.3);
-              synth.speak(u);
-            } catch {
-              /* ignore */
-            }
-          }
-          setVolume(0.4 + Math.random() * 0.5);
-        }, delay);
-        demoTimers.current.push(t);
-        delay += line.content.length * 55 + 900;
-      });
-      // End call after the script.
-      const endT = setTimeout(() => endCall(), delay + 600);
-      demoTimers.current.push(endT);
-    }, 1200);
-    demoTimers.current.push(connectT);
   };
 
   // ----- Real VAPI web call -----
   const runVapiCall = async () => {
     if (!publicKey) {
       toast("No VAPI public key configured.", "error");
+      return;
+    }
+    if (!agent.vapi_assistant_id) {
+      toast("This agent isn't synced to VAPI yet. Save the agent and retry.", "error");
       return;
     }
     try {
@@ -140,7 +87,7 @@ export function WebCallWidget({
         cleanup();
       });
 
-      await vapi.start(agent.vapi_assistant_id || undefined);
+      await vapi.start(agent.vapi_assistant_id);
     } catch (e) {
       toast(e instanceof Error ? e.message : "Failed to start call", "error");
       setState("idle");
@@ -149,8 +96,7 @@ export function WebCallWidget({
   };
 
   const startCall = () => {
-    if (demoMode) runDemoCall();
-    else runVapiCall();
+    runVapiCall();
   };
 
   const endCall = () => {
@@ -162,7 +108,6 @@ export function WebCallWidget({
         /* ignore */
       }
     }
-    if (typeof window !== "undefined") window.speechSynthesis?.cancel();
     cleanup();
     setTimeout(() => setState("idle"), 400);
   };
@@ -170,7 +115,6 @@ export function WebCallWidget({
   useEffect(() => {
     return () => {
       cleanup();
-      if (typeof window !== "undefined") window.speechSynthesis?.cancel();
       if (vapiRef.current) {
         try {
           vapiRef.current.stop();
@@ -232,11 +176,9 @@ export function WebCallWidget({
           )}
         </div>
 
-        {demoMode && (
-          <p className="mt-3 text-xs text-warning">
-            Demo mode: simulated call using your browser&apos;s speech engine.
-          </p>
-        )}
+        <p className="mt-3 text-xs text-text-secondary">
+          Live call via VAPI using your microphone.
+        </p>
       </div>
 
       {transcript.length > 0 && (

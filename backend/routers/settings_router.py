@@ -10,9 +10,9 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 async def get_settings():
     return envelope(
         {
-            "demo_mode": settings.demo_mode,
-            "vapi_connected": not settings.demo_mode,
-            "has_gemini": bool(settings.GOOGLE_API_KEY.strip()),
+            "vapi_connected": settings.vapi_ready,
+            "phone_connected": settings.phone_ready,
+            "has_gemini": settings.gemini_ready,
             "has_elevenlabs": bool(settings.ELEVENLABS_API_KEY.strip()),
             "vapi_public_key": settings.VAPI_PUBLIC_KEY,
         }

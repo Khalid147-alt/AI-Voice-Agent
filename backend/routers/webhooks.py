@@ -144,6 +144,18 @@ async def _process_end_of_call(db: AsyncSession, message: dict):
     if isinstance(call.analysis, dict):
         call.interest_level = call.analysis.get("interest_level")
 
+    # Roll up campaign stats for calls that belong to a campaign.
+    if call.campaign_id:
+        from models.campaign import Campaign
+
+        campaign = (
+            await db.execute(select(Campaign).where(Campaign.id == call.campaign_id))
+        ).scalar_one_or_none()
+        if campaign:
+            campaign.calls_answered = (campaign.calls_answered or 0) + 1
+            if call.success:
+                campaign.leads_qualified = (campaign.leads_qualified or 0) + 1
+
     await db.commit()
 
     # Fire-and-forget LangGraph post-call enrichment.

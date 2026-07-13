@@ -2,11 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from config import settings
 from database import get_db
 from models.agent import Agent
 from schemas.agent import AgentCreate, AgentUpdate, AgentOut
-from services.vapi_client import vapi_client, build_assistant_config, DemoModeError
+from services.vapi_client import vapi_client, build_assistant_config
 from utils import envelope
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
@@ -32,20 +31,18 @@ async def create_agent(payload: AgentCreate, db: AsyncSession = Depends(get_db))
     db.add(agent)
     await db.flush()
 
-    if not settings.demo_mode:
-        try:
-            config = build_assistant_config(agent)
-            result = await vapi_client.create_assistant(config)
-            agent.vapi_assistant_id = result.get("id")
-        except DemoModeError:
-            pass
-        except Exception as exc:
-            # Don't fail local creation if VAPI sync fails; surface a soft warning.
-            await db.commit()
-            return envelope(
-                AgentOut.model_validate(agent).model_dump(mode="json"),
-                error=f"Saved locally but VAPI sync failed: {exc}",
-            )
+    try:
+        config = build_assistant_config(agent)
+        result = await vapi_client.create_assistant(config)
+        agent.vapi_assistant_id = result.get("id")
+    except Exception as exc:
+        # Don't lose the local record if VAPI sync fails; surface a soft warning so
+        # the user can retry the sync via an update.
+        await db.commit()
+        return envelope(
+            AgentOut.model_validate(agent).model_dump(mode="json"),
+            error=f"Saved locally but VAPI assistant sync failed: {exc}",
+        )
 
     await db.commit()
     return envelope(AgentOut.model_validate(agent).model_dump(mode="json"))
@@ -60,14 +57,23 @@ async def update_agent(agent_id: str, payload: AgentUpdate, db: AsyncSession = D
     for key, value in payload.model_dump(exclude_unset=True).items():
         setattr(agent, key, value)
 
-    if not settings.demo_mode and agent.vapi_assistant_id:
-        try:
-            await vapi_client.update_assistant(agent.vapi_assistant_id, build_assistant_config(agent))
-        except Exception:
-            pass
+    sync_error = None
+    try:
+        if agent.vapi_assistant_id:
+            await vapi_client.update_assistant(
+                agent.vapi_assistant_id, build_assistant_config(agent)
+            )
+        else:
+            # No assistant yet (e.g. an earlier sync failed) — create it now.
+            result = await vapi_client.create_assistant(build_assistant_config(agent))
+            agent.vapi_assistant_id = result.get("id")
+    except Exception as exc:
+        sync_error = f"Saved locally but VAPI sync failed: {exc}"
 
     await db.commit()
-    return envelope(AgentOut.model_validate(agent).model_dump(mode="json"))
+    return envelope(
+        AgentOut.model_validate(agent).model_dump(mode="json"), error=sync_error
+    )
 
 
 @router.delete("/{agent_id}")
@@ -76,10 +82,11 @@ async def delete_agent(agent_id: str, db: AsyncSession = Depends(get_db)):
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
-    if not settings.demo_mode and agent.vapi_assistant_id:
+    if agent.vapi_assistant_id:
         try:
             await vapi_client.delete_assistant(agent.vapi_assistant_id)
         except Exception:
+            # Assistant may already be gone on VAPI's side; proceed with local delete.
             pass
 
     await db.delete(agent)

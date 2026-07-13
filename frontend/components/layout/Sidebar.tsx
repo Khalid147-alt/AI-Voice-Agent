@@ -81,7 +81,7 @@ export function Sidebar() {
               ? "Connecting…"
               : vapiConnected
               ? "VAPI Connected"
-              : "Demo Mode"}
+              : "VAPI Not Connected"}
           </div>
         </div>
       </aside>

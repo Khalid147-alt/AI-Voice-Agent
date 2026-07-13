@@ -1,8 +1,4 @@
-"""Async wrapper around the VAPI REST API.
-
-When no VAPI private key is configured (demo mode), all network methods raise
-``DemoModeError`` so callers can gracefully fall back to local-only behaviour.
-"""
+"""Async wrapper around the VAPI REST API."""
 from typing import List, Optional
 
 import httpx
@@ -10,8 +6,8 @@ import httpx
 from config import settings
 
 
-class DemoModeError(RuntimeError):
-    """Raised when a VAPI network call is attempted without credentials."""
+class VAPIError(RuntimeError):
+    """Raised when a VAPI request cannot be made or fails."""
 
 
 class VAPIClient:
@@ -30,12 +26,11 @@ class VAPIClient:
             "Content-Type": "application/json",
         }
 
-    def _guard(self) -> None:
-        if not self.enabled:
-            raise DemoModeError("VAPI private key not configured (demo mode).")
-
     async def _request(self, method: str, path: str, **kwargs):
-        self._guard()
+        if not self.enabled:
+            raise VAPIError(
+                "VAPI_PRIVATE_KEY is not configured. Set it in backend/.env to use VAPI."
+            )
         url = f"{self.BASE_URL}{path}"
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.request(method, url, headers=self._headers(), **kwargs)
