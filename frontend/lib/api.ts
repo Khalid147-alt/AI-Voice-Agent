@@ -144,5 +144,3 @@ export const api = {
   costTrend: (days = 30) =>
     request<CostTrendPoint[]>(`/api/analytics/cost-trend?days=${days}`),
 };
-
-export const WS_URL = BASE_URL.replace(/^http/, "ws") + "/ws";

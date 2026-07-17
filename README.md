@@ -13,9 +13,9 @@ A production-grade, full-stack platform for building, launching, and monitoring 
 ## ✨ Features
 
 - **AI Agents** — Create voice agents with custom prompts, first messages, ElevenLabs voices, and temperature; synced to VAPI assistants.
-- **Live Call Monitoring** — Real-time dashboard feed of in-progress calls with animated waveforms and live duration timers (via WebSockets).
+- **Live Call Monitoring** — Near-real-time dashboard feed of in-progress calls with animated waveforms and live duration timers (via lightweight REST polling — serverless-friendly).
 - **In-Browser Test Calls** — Talk to any agent directly in the browser using the VAPI Web SDK (microphone → live assistant).
-- **Campaigns** — 3-step wizard to select an agent + contacts and launch batched outbound calling with configurable pacing (APScheduler).
+- **Campaigns** — 3-step wizard to select an agent + contacts and launch batched outbound calling with configurable pacing (Vercel Cron).
 - **Contacts** — Manual add + CSV import with status tracking (new → contacted → qualified → booked).
 - **Transcripts & Analysis** — Chat-style transcript viewer, recording playback, lead score, intent, sentiment, objections, and recommended next action.
 - **LangGraph Pipeline** — 4-node post-call analysis: sentiment → intent → lead score → recommended action.
@@ -25,7 +25,7 @@ A production-grade, full-stack platform for building, launching, and monitoring 
 
 ## 🧰 Tech Stack
 
-**Backend:** Python 3.11 · FastAPI · SQLAlchemy (async + aiosqlite) · LangGraph · APScheduler · httpx · WebSockets · VAPI REST API
+**Backend:** Python 3.11 · FastAPI · SQLAlchemy (async — Postgres/asyncpg in prod, SQLite locally) · LangGraph · Vercel Cron · httpx · VAPI REST API · Vercel Python serverless
 
 **Frontend:** Next.js 14 (App Router) · TypeScript · Tailwind CSS · Recharts · Framer Motion · Lucide · @vapi-ai/web
 
@@ -44,7 +44,7 @@ cp .env.example .env          # then fill in your VAPI + Gemini keys
 uvicorn main:app --reload --port 8000
 ```
 
-The API starts on **http://localhost:8000** and auto-creates an empty SQLite DB on first run. On startup it logs a warning if any required key (`VAPI_PRIVATE_KEY`, `GOOGLE_API_KEY`) or the phone number is missing.
+The API starts on **http://localhost:8000** and auto-creates an empty SQLite DB on first run (locally; production uses Postgres). On startup it logs a warning if any required key (`VAPI_PRIVATE_KEY`, `GOOGLE_API_KEY`) or the phone number is missing.
 
 ### 2. Frontend
 
@@ -70,20 +70,21 @@ Open **http://localhost:3000** → you'll be redirected to the dashboard.
 ## 🏗️ Architecture
 
 ```
-┌──────────────────────────────┐         WebSocket (/ws)        ┌───────────────────────────┐
-│      Next.js 14 Frontend     │ ◄───────live call events──────►│      FastAPI Backend       │
-│  Dashboard · Agents · Calls  │                                │                            │
-│  Campaigns · Contacts · A/n  │ ───────REST /api/* ──────────► │  Routers ─► Services ─► DB  │
-└──────────────┬───────────────┘                                │   │           │            │
-               │ @vapi-ai/web (browser call)                    │   │           ├─ VAPI client (httpx)
-               ▼                                                 │   │           ├─ LangGraph pipeline
-        ┌─────────────┐         webhooks (/api/webhooks/vapi)   │   │           └─ APScheduler
-        │    VAPI      │ ──────────────────────────────────────►│   ▼
-        │  (telephony) │   status · transcript · end-of-call    │  SQLite (async / aiosqlite)
+┌──────────────────────────────┐      REST polling (live)       ┌───────────────────────────┐
+│   Next.js 14 Frontend        │ ◄──────every few seconds───────►│  FastAPI Backend (Vercel)  │
+│   (Vercel)                   │                                │                            │
+│  Dashboard · Agents · Calls  │ ───────REST /api/* ──────────► │  Routers ─► Services ─► DB  │
+│  Campaigns · Contacts · A/n  │                                │   │           │            │
+└──────────────┬───────────────┘                                │   │           ├─ VAPI client (httpx)
+               │ @vapi-ai/web (browser call)                    │   │           ├─ LangGraph pipeline
+               ▼                                                 │   │           └─ Vercel Cron ─► batches
+        ┌─────────────┐         webhooks (/api/webhooks/vapi)   │   ▼
+        │    VAPI      │ ──────────────────────────────────────►│  Vercel Postgres (asyncpg)
+        │  (telephony) │   status · transcript · end-of-call    │
         └─────────────┘                                         └───────────────────────────┘
 ```
 
-**Post-call flow:** VAPI `end-of-call-report` → webhook persists transcript/cost/recording → fires the LangGraph pipeline (sentiment → intent → lead score → next action) → broadcasts `analysis_ready` over WebSocket → dashboard updates.
+**Post-call flow:** VAPI `end-of-call-report` → webhook persists transcript/cost/recording → runs the LangGraph pipeline inline (sentiment → intent → lead score → next action) and saves the analysis → the dashboard picks it up on its next poll.
 
 ---
 
@@ -101,35 +102,52 @@ Open **http://localhost:3000** → you'll be redirected to the dashboard.
 
 ---
 
-## ✅ Production Checklist
+## ✅ Production Checklist (Vercel)
 
-- [ ] `VAPI_PRIVATE_KEY`, `VAPI_PUBLIC_KEY`, `GOOGLE_API_KEY` set in `backend/.env`
+- [ ] Backend Vercel project: **Root Directory = `backend`**; Postgres added (or `DATABASE_URL` set)
+- [ ] Backend env: `VAPI_PRIVATE_KEY`, `VAPI_PUBLIC_KEY`, `GOOGLE_API_KEY`, `ELEVENLABS_API_KEY`
+- [ ] Backend env: `BACKEND_URL` = the backend's own Vercel URL (for VAPI webhooks)
+- [ ] Backend env: `FRONTEND_URL` = the frontend's Vercel URL; `CRON_SECRET` set to a strong random value
 - [ ] Google + ElevenLabs credentials registered **in the VAPI org**
-- [ ] `NEXT_PUBLIC_VAPI_PUBLIC_KEY` + `NEXT_PUBLIC_API_URL` set in `frontend/.env.local`
-- [ ] `BACKEND_URL` points to a public/deployed URL (for webhooks)
 - [ ] `VAPI_PHONE_NUMBER_ID` set (only if using outbound phone calls/campaigns)
-- [ ] Startup log shows no missing-key warnings; `GET /api/settings` returns `vapi_connected: true`
+- [ ] Frontend Vercel project: **Root Directory = `frontend`**; `NEXT_PUBLIC_API_URL` = backend URL, `NEXT_PUBLIC_VAPI_PUBLIC_KEY` set
+- [ ] `GET /api/settings` on the backend returns `vapi_connected: true`
 
 The app starts with an empty database — create your own agents and contacts. There is no demo/seed data.
 
 ---
 
-## 🌐 Deployment
+## 🌐 Deployment (both on Vercel)
 
-**Backend → Hugging Face Docker Space** ([Space](https://huggingface.co/spaces/Khalid147/AI-Voice-Agent))
+The backend and frontend deploy as **two separate Vercel projects** from the same repo.
 
-The `backend/` folder is the Space root: it contains a `Dockerfile` (binds `0.0.0.0:7860`) and a `README.md` with the Docker frontmatter HF requires. Set the keys under **Settings → Variables and secrets** (see the backend README table). Set `BACKEND_URL` to the Space URL and `FRONTEND_URL` to your Vercel URL.
+### Backend → Vercel (Python serverless)
 
-**Frontend → Vercel**
+1. **Add New → Project**, import the repo, set **Root Directory** to `backend`.
+   Vercel auto-detects `backend/vercel.json` and the `api/index.py` entrypoint.
+2. **Storage → Create → Postgres** (Vercel Postgres / Neon). This injects
+   `POSTGRES_URL` / `POSTGRES_URL_NON_POOLING` automatically — no `DATABASE_URL`
+   needed. (Or set `DATABASE_URL` for an external Postgres.)
+3. Add env vars: `VAPI_PRIVATE_KEY`, `VAPI_PUBLIC_KEY`, `GOOGLE_API_KEY`,
+   `ELEVENLABS_API_KEY`, `VAPI_PHONE_NUMBER_ID` (optional), `FRONTEND_URL`,
+   `BACKEND_URL` (this project's own URL), and `CRON_SECRET` (any strong random
+   string — guards the campaign cron endpoint).
+4. Deploy. Tables are created on the first request; a Vercel Cron job
+   (`*/2 * * * *`) paces outbound campaigns automatically.
 
-1. Import the GitHub repo in Vercel.
-2. Set **Root Directory** to `frontend`.
-3. Add env vars:
-   - `NEXT_PUBLIC_API_URL` = your HF Space URL (e.g. `https://khalid147-ai-voice-agent.hf.space`)
+### Frontend → Vercel
+
+1. Add a second project from the same repo, set **Root Directory** to `frontend`.
+2. Add env vars:
+   - `NEXT_PUBLIC_API_URL` = your backend Vercel URL (e.g. `https://your-api.vercel.app`)
    - `NEXT_PUBLIC_VAPI_PUBLIC_KEY` = your VAPI public key
-4. Deploy. The WebSocket URL is derived from `NEXT_PUBLIC_API_URL` automatically (`https→wss`).
+3. Deploy.
 
-> The two services are cross-origin: the backend allows the Vercel origin via CORS (`FRONTEND_URL` + any `*.vercel.app`).
+> **Serverless architecture:** Vercel functions are stateless and can't hold
+> WebSockets open or run background schedulers, so this app uses **REST polling**
+> for live updates (no WebSocket), **Vercel Cron** for campaign pacing, and
+> **Vercel Postgres** for state (not SQLite). The two projects are cross-origin;
+> the backend allows the frontend via CORS (`FRONTEND_URL` + any `*.vercel.app`).
 
 ---
 

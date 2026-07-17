@@ -8,7 +8,7 @@ from database import get_db
 from models.agent import Agent
 from models.campaign import Campaign
 from schemas.campaign import CampaignCreate, CampaignUpdate, CampaignOut
-from services.scheduler import schedule_campaign
+from services.campaign_runner import run_campaign_once
 from utils import envelope
 
 router = APIRouter(prefix="/api/campaigns", tags=["campaigns"])
@@ -61,10 +61,16 @@ async def create_campaign(payload: CampaignCreate, db: AsyncSession = Depends(ge
     db.add(campaign)
     await db.commit()
 
+    # No in-process scheduling: a "running" or "scheduled" campaign is picked up
+    # by the Vercel Cron runner (POST /api/cron/run-campaigns), which dispatches
+    # one paced batch per invocation. For an immediate launch, dispatch the first
+    # batch inline so the user sees progress without waiting for the next tick.
     if payload.run_now:
-        schedule_campaign(campaign.id)
-    elif payload.scheduled_at:
-        schedule_campaign(campaign.id, payload.scheduled_at)
+        try:
+            await run_campaign_once(campaign.id)
+        except Exception:  # best-effort; cron will retry
+            pass
+        await db.refresh(campaign)
 
     names = await _agent_name_map(db)
     return envelope(_serialize(campaign, names))
@@ -79,7 +85,13 @@ async def start_campaign(campaign_id: str, db: AsyncSession = Depends(get_db)):
     if not c.started_at:
         c.started_at = datetime.utcnow()
     await db.commit()
-    schedule_campaign(campaign_id)
+    # Dispatch the first batch now; the cron runner continues pacing subsequent
+    # batches on each tick.
+    try:
+        await run_campaign_once(campaign_id)
+    except Exception:
+        pass
+    await db.refresh(c)
     names = await _agent_name_map(db)
     return envelope(_serialize(c, names))
 

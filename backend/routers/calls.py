@@ -12,7 +12,6 @@ from models.call import Call
 from models.contact import Contact
 from schemas.call import CallCreate, CallOut
 from services.vapi_client import vapi_client
-from ws.manager import ws_manager
 from utils import envelope
 
 router = APIRouter(prefix="/api/calls", tags=["calls"])
@@ -123,6 +122,5 @@ async def create_call(payload: CallCreate, db: AsyncSession = Depends(get_db)):
         )
 
     await db.commit()
-    await ws_manager.broadcast({"type": "call_created", "call_id": call.id})
     names = await _agent_name_map(db)
     return envelope(_serialize(call, names))

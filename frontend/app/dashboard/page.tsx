@@ -3,14 +3,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { Phone, Radio, Flame, DollarSign } from "lucide-react";
 import { api } from "@/lib/api";
-import { useWebSocket } from "@/lib/useWebSocket";
+import { usePolling } from "@/lib/usePolling";
 import { useToast } from "@/components/shared/Toast";
 import { KpiCard } from "@/components/dashboard/KpiCard";
 import { LiveCallsFeed } from "@/components/dashboard/LiveCallsFeed";
 import { CallVolumeChart } from "@/components/dashboard/CallVolumeChart";
 import { LoadingSpinner } from "@/components/shared/LoadingSpinner";
 import { formatCost } from "@/lib/utils";
-import type { AnalyticsOverview, Call, CallVolumePoint, WsEvent } from "@/types";
+import type { AnalyticsOverview, Call, CallVolumePoint } from "@/types";
 
 export default function DashboardPage() {
   const { toast } = useToast();
@@ -40,23 +40,8 @@ export default function DashboardPage() {
     load();
   }, [load]);
 
-  const onEvent = useCallback(
-    (e: WsEvent) => {
-      if (
-        ["call_completed", "call_status", "call_created", "campaign_progress"].includes(
-          e.type
-        )
-      ) {
-        load();
-      }
-      if (e.type === "appointment_booked") {
-        toast(`📅 Appointment booked${e.name ? ` for ${e.name}` : ""}!`, "success");
-      }
-    },
-    [load, toast]
-  );
-
-  const { connected } = useWebSocket(onEvent);
+  // Live updates via polling (WebSockets aren't available on serverless).
+  usePolling(load, 4000);
 
   if (loading) return <LoadingSpinner label="Loading dashboard…" />;
 
@@ -74,12 +59,8 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-2 text-xs text-text-secondary">
-        <span
-          className={`h-2 w-2 rounded-full ${
-            connected ? "bg-success" : "bg-text-muted"
-          }`}
-        />
-        {connected ? "Live updates connected" : "Reconnecting…"}
+        <span className="h-2 w-2 rounded-full bg-success animate-pulse-dot" />
+        Live updates on
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

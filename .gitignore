@@ -16,6 +16,9 @@ frontend/dev.log
 frontend/tsconfig.tsbuildinfo
 .env.local
 
+# Vercel
+.vercel/
+
 # OS / editor
 .DS_Store
 Thumbs.db

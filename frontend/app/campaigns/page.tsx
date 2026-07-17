@@ -5,12 +5,12 @@ import Link from "next/link";
 import { Megaphone, Plus, Play, Pause, Check } from "lucide-react";
 import { api } from "@/lib/api";
 import { useToast } from "@/components/shared/Toast";
-import { useWebSocket } from "@/lib/useWebSocket";
+import { usePolling } from "@/lib/usePolling";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { LoadingSpinner } from "@/components/shared/LoadingSpinner";
 import { motion } from "framer-motion";
-import type { Campaign, WsEvent } from "@/types";
+import type { Campaign } from "@/types";
 
 export default function CampaignsPage() {
   const { toast } = useToast();
@@ -31,13 +31,8 @@ export default function CampaignsPage() {
     load();
   }, [load]);
 
-  const onEvent = useCallback(
-    (e: WsEvent) => {
-      if (e.type === "campaign_progress") load();
-    },
-    [load]
-  );
-  useWebSocket(onEvent);
+  // Live campaign progress via polling (WebSockets aren't available on serverless).
+  usePolling(load, 4000);
 
   const handleStart = async (id: string) => {
     try {
