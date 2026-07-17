@@ -5,12 +5,12 @@ import { useSearchParams } from "next/navigation";
 import { Phone } from "lucide-react";
 import { api } from "@/lib/api";
 import { useToast } from "@/components/shared/Toast";
-import { useWebSocket } from "@/lib/useWebSocket";
+import { usePolling } from "@/lib/usePolling";
 import { CallsTable } from "@/components/calls/CallsTable";
 import { CallDetailDrawer } from "@/components/calls/CallDetailDrawer";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { LoadingSpinner } from "@/components/shared/LoadingSpinner";
-import type { Agent, Call, WsEvent } from "@/types";
+import type { Agent, Call } from "@/types";
 
 export default function CallsPage() {
   return (
@@ -54,15 +54,8 @@ function CallsPageInner() {
     load();
   }, [load]);
 
-  const onEvent = useCallback(
-    (e: WsEvent) => {
-      if (["call_completed", "call_status", "call_created", "analysis_ready"].includes(e.type)) {
-        load();
-      }
-    },
-    [load]
-  );
-  useWebSocket(onEvent);
+  // Live updates via polling (WebSockets aren't available on serverless).
+  usePolling(load, 5000);
 
   // Open drawer for highlighted call on load.
   useEffect(() => {

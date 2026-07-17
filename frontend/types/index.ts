@@ -165,12 +165,3 @@ export interface ApiEnvelope<T> {
   error: string | null;
 }
 
-export interface WsEvent {
-  type: string;
-  call_id?: string;
-  status?: string;
-  campaign_id?: string;
-  calls_made?: number;
-  entry?: TranscriptEntry;
-  name?: string;
-}

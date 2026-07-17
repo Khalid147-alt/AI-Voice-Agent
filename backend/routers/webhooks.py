@@ -1,15 +1,13 @@
-import asyncio
 from datetime import datetime
 
 from fastapi import APIRouter, Request, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from database import get_db, AsyncSessionLocal
+from database import get_db
 from models.call import Call
 from models.agent import Agent
 from services.analysis_pipeline import analyze_transcript
-from ws.manager import ws_manager
 
 router = APIRouter(prefix="/api/webhooks", tags=["webhooks"])
 
@@ -47,20 +45,14 @@ async def handle_vapi_webhook(request: Request, db: AsyncSession = Depends(get_d
             if new_status == "in-progress" and not call.started_at:
                 call.started_at = datetime.utcnow()
             await db.commit()
-        await ws_manager.broadcast(
-            {"type": "call_status", "call_id": vapi_call_id, "status": new_status}
-        )
+        # Realtime is delivered to the dashboard via polling (no WebSocket on
+        # serverless); persisting the new status above is enough.
         return {"status": "ok"}
 
     if msg_type == "transcript":
-        entry = {
-            "role": message.get("role"),
-            "content": message.get("transcript"),
-            "timestamp": message.get("timestamp") or message.get("secondsFromStart"),
-        }
-        await ws_manager.broadcast(
-            {"type": "transcript_chunk", "call_id": vapi_call_id, "entry": entry}
-        )
+        # Live per-chunk transcript streaming required a WebSocket; on serverless
+        # the full transcript is persisted from the end-of-call-report and the
+        # dashboard polls for it. Acknowledge and drop interim chunks.
         return {"status": "ok"}
 
     if msg_type == "end-of-call-report":
@@ -100,7 +92,6 @@ async def _handle_tool_call(db: AsyncSession, tool_call: dict) -> str:
                 args = {}
         who = args.get("name", "the prospect")
         when = args.get("preferred_time", "a time that works")
-        await ws_manager.broadcast({"type": "appointment_booked", "name": who})
         return f"Appointment booked for {who} at {when}. A calendar invite has been sent."
     return "ok"
 
@@ -156,25 +147,16 @@ async def _process_end_of_call(db: AsyncSession, message: dict):
             if call.success:
                 campaign.leads_qualified = (campaign.leads_qualified or 0) + 1
 
+    # Run LangGraph post-call enrichment inline and persist before acking. On
+    # serverless a fire-and-forget task would be killed once the response
+    # returns, so we await it here. The pipeline has heuristic fallbacks, so it
+    # completes quickly and never hangs on a slow/absent Gemini.
+    enriched = analyze_transcript(call.id, call.transcript or [])
+    merged = dict(call.analysis or {})
+    merged.update({k: v for k, v in enriched.items() if v is not None})
+    call.analysis = merged
+    if enriched.get("lead_score") is not None and not call.interest_level:
+        score = enriched["lead_score"]
+        call.interest_level = "hot" if score >= 75 else "warm" if score >= 45 else "cold"
+
     await db.commit()
-
-    # Fire-and-forget LangGraph post-call enrichment.
-    asyncio.create_task(_run_post_call_analysis(call.id))
-
-    await ws_manager.broadcast({"type": "call_completed", "call_id": call.id})
-
-
-async def _run_post_call_analysis(call_id: str):
-    async with AsyncSessionLocal() as db:
-        call = (await db.execute(select(Call).where(Call.id == call_id))).scalar_one_or_none()
-        if not call:
-            return
-        enriched = analyze_transcript(call_id, call.transcript or [])
-        merged = dict(call.analysis or {})
-        merged.update({k: v for k, v in enriched.items() if v is not None})
-        call.analysis = merged
-        if enriched.get("lead_score") is not None and not call.interest_level:
-            score = enriched["lead_score"]
-            call.interest_level = "hot" if score >= 75 else "warm" if score >= 45 else "cold"
-        await db.commit()
-        await ws_manager.broadcast({"type": "analysis_ready", "call_id": call_id})

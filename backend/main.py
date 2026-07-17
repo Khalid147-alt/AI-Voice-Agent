@@ -1,15 +1,13 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
-from database import init_db
-from ws.manager import ws_manager
-from services.scheduler import start_scheduler, shutdown_scheduler
+from database import ensure_db_ready
 
-from routers import agents, calls, contacts, campaigns, webhooks, analytics
+from routers import agents, calls, contacts, campaigns, webhooks, analytics, cron
 from routers import settings_router
 
 logger = logging.getLogger("voicedesk")
@@ -17,13 +15,20 @@ logger = logging.getLogger("voicedesk")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await init_db()
+    # Best-effort startup init for long-lived servers (local uvicorn / Docker).
+    # On Vercel serverless the lifespan may not run, so the middleware below also
+    # guarantees the DB is ready on the first request (ensure_db_ready is a
+    # no-op after the first successful init).
+    try:
+        await ensure_db_ready()
+    except Exception as exc:  # don't crash boot if the DB is briefly unreachable
+        logger.warning("Deferred DB init to first request: %s", exc)
 
     missing = settings.missing_required()
     if missing:
         logger.warning(
             "VoiceDesk starting WITHOUT required keys: %s. "
-            "Configure them in backend/.env for full functionality.",
+            "Configure them in the environment for full functionality.",
             ", ".join(missing),
         )
     else:
@@ -41,13 +46,21 @@ async def lifespan(app: FastAPI):
             "Set BACKEND_URL to your public/deployed URL for live transcripts and call reports.",
             settings.BACKEND_URL,
         )
-
-    start_scheduler()
     yield
-    shutdown_scheduler()
 
 
-app = FastAPI(title="VoiceDesk API", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="VoiceDesk API", version="2.0.0", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def _db_ready_middleware(request: Request, call_next):
+    """Ensure DB tables exist before handling any request (serverless-safe)."""
+    try:
+        await ensure_db_ready()
+    except Exception as exc:
+        logger.warning("DB init failed for %s: %s", request.url.path, exc)
+    return await call_next(request)
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -67,6 +80,7 @@ app.include_router(campaigns.router)
 app.include_router(webhooks.router)
 app.include_router(analytics.router)
 app.include_router(settings_router.router)
+app.include_router(cron.router)
 
 
 @app.get("/")
@@ -84,15 +98,3 @@ async def root():
 @app.get("/health")
 async def health():
     return {"data": {"status": "ok"}, "error": None}
-
-
-@app.websocket("/ws")
-async def websocket_endpoint(ws: WebSocket):
-    await ws_manager.connect(ws)
-    try:
-        while True:
-            await ws.receive_text()  # keep-alive; client may ping
-    except WebSocketDisconnect:
-        ws_manager.disconnect(ws)
-    except Exception:
-        ws_manager.disconnect(ws)
