@@ -12,6 +12,7 @@ export interface AgentFormValues {
   first_message: string;
   voice_id: string;
   voice_name: string;
+  voice_provider: string;
   temperature: number;
   status: string;
 }
@@ -32,6 +33,8 @@ export function AgentForm({
     first_message: initial?.first_message ?? "",
     voice_id: initial?.voice_id ?? VOICE_OPTIONS[0].id,
     voice_name: initial?.voice_name ?? VOICE_OPTIONS[0].name,
+    // All picker voices are VAPI built-in voices (free, no external credential).
+    voice_provider: "vapi",
     temperature: initial?.temperature ?? 0.5,
     status: initial?.status ?? "active",
   });
@@ -101,7 +104,7 @@ export function AgentForm({
         </div>
 
         <div>
-          <label className="label">Voice (ElevenLabs)</label>
+          <label className="label">Voice</label>
           <div className="grid grid-cols-1 gap-2">
             {VOICE_OPTIONS.map((v) => (
               <button

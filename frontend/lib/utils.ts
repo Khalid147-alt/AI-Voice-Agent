@@ -42,10 +42,11 @@ export function formatDateTime(iso: string | null | undefined): string {
   });
 }
 
+// VAPI built-in voices (provider "vapi") — free, no external credential needed.
+// (ElevenLabs' free tier blocks library voices over the API, which fails live
+// calls; these VAPI voices work out of the box.)
 export const VOICE_OPTIONS = [
-  { name: "Rachel", id: "21m00Tcm4TlvDq8ikWAM", desc: "Warm, friendly female — great for sales" },
-  { name: "Adam", id: "pNInz6obpgDQGcFmaJgB", desc: "Confident male — outbound & closing" },
-  { name: "Elli", id: "MF3mGyEYCl7XYWbV9V6O", desc: "Calm, clear female — support & triage" },
-  { name: "Josh", id: "TxGEqnHWrfWFTfGW9XjX", desc: "Deep, professional male — enterprise" },
-  { name: "Bella", id: "EXAVITQu4vr4xnSDxMaL", desc: "Soft, approachable female — onboarding" },
+  { name: "Elliot", id: "Elliot", desc: "Warm, natural male — great all-rounder" },
+  { name: "Rohan", id: "Rohan", desc: "Confident male — outbound & closing" },
+  { name: "Savannah", id: "Savannah", desc: "Friendly female — support & triage" },
 ];

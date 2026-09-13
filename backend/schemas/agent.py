@@ -9,9 +9,9 @@ class AgentBase(BaseModel):
     description: Optional[str] = ""
     system_prompt: Optional[str] = ""
     first_message: Optional[str] = ""
-    voice_id: Optional[str] = "21m00Tcm4TlvDq8ikWAM"
-    voice_provider: Optional[str] = "11labs"
-    voice_name: Optional[str] = "Rachel"
+    voice_id: Optional[str] = "Elliot"
+    voice_provider: Optional[str] = "vapi"
+    voice_name: Optional[str] = "Elliot"
     temperature: Optional[float] = 0.5
     status: Optional[str] = "active"
 

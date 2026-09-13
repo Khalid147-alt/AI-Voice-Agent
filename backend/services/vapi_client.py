@@ -70,6 +70,32 @@ class VAPIClient:
         return data or []
 
 
+def _build_voice_config(agent) -> dict:
+    """Build the VAPI `voice` block for an agent.
+
+    Defaults to VAPI's own built-in voices (provider "vapi"), which are free and
+    need no external provider credential. ElevenLabs is only used when an agent
+    explicitly selects provider "11labs" — note ElevenLabs' FREE tier blocks
+    library voices over the API (HTTP 402), so those require a paid ElevenLabs
+    plan or a self-owned/cloned voice.
+    """
+    provider = (agent.voice_provider or "vapi").strip()
+
+    if provider == "11labs":
+        return {
+            "provider": "11labs",
+            "voiceId": agent.voice_id or "21m00Tcm4TlvDq8ikWAM",
+            "stability": 0.5,
+            "similarityBoost": 0.75,
+        }
+
+    # VAPI built-in voices (and any other provider): no ElevenLabs-only tuning.
+    return {
+        "provider": provider,
+        "voiceId": agent.voice_id or "Elliot",
+    }
+
+
 def build_assistant_config(agent) -> dict:
     """Build the VAPI assistant config payload from an Agent ORM instance."""
     return {
@@ -101,12 +127,7 @@ def build_assistant_config(agent) -> dict:
                 },
             ],
         },
-        "voice": {
-            "provider": agent.voice_provider or "11labs",
-            "voiceId": agent.voice_id or "21m00Tcm4TlvDq8ikWAM",
-            "stability": 0.5,
-            "similarityBoost": 0.75,
-        },
+        "voice": _build_voice_config(agent),
         "transcriber": {
             "provider": "deepgram",
             "model": "nova-2",

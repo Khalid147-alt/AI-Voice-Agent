@@ -59,6 +59,36 @@ export function WebCallWidget({
     try {
       setState("connecting");
       setTranscript([]);
+
+      // Explicitly acquire the microphone before starting the call. VAPI's web
+      // SDK relies on the browser mic; if permission is missing or no input is
+      // available the call connects but sends no audio and VAPI drops it with
+      // "assistant-did-not-receive-customer-audio". Requesting it up front
+      // triggers the permission prompt and surfaces a clear error on failure.
+      if (
+        typeof navigator === "undefined" ||
+        !navigator.mediaDevices?.getUserMedia
+      ) {
+        toast(
+          "Microphone isn't available in this browser context. Use https or localhost and a supported browser.",
+          "error"
+        );
+        setState("idle");
+        return;
+      }
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        // Release our probe tracks; the SDK opens its own stream once started.
+        stream.getTracks().forEach((t) => t.stop());
+      } catch {
+        toast(
+          "Microphone access is blocked. Allow mic permission for this site (check the address-bar icon) and retry.",
+          "error"
+        );
+        setState("idle");
+        return;
+      }
+
       const VapiModule = await import("@vapi-ai/web");
       const Vapi = VapiModule.default;
       const vapi = new Vapi(publicKey);
@@ -68,7 +98,14 @@ export function WebCallWidget({
         setState("active");
         startTimer();
       });
-      vapi.on("call-end", () => {
+      vapi.on("call-end", (...args: any[]) => {
+        // Surface an abnormal end reason (e.g. no customer audio) so a silent
+        // drop doesn't look like "nothing happened".
+        const payload = args[0];
+        const reason = payload?.endedReason || payload?.reason;
+        if (reason && /error|no-?audio|did-not-receive/i.test(String(reason))) {
+          toast(`Call ended: ${String(reason).replace(/[.-]/g, " ")}`, "error");
+        }
         setState("idle");
         cleanup();
       });

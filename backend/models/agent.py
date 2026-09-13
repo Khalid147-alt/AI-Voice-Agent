@@ -15,9 +15,9 @@ class Agent(Base):
     description = Column(String, default="")
     system_prompt = Column(Text, default="")
     first_message = Column(String, default="")
-    voice_id = Column(String, default="21m00Tcm4TlvDq8ikWAM")
-    voice_provider = Column(String, default="11labs")
-    voice_name = Column(String, default="Rachel")
+    voice_id = Column(String, default="Elliot")
+    voice_provider = Column(String, default="vapi")
+    voice_name = Column(String, default="Elliot")
     temperature = Column(Float, default=0.5)
     status = Column(String, default="active")  # active | paused
     calls_count = Column(Integer, default=0)
